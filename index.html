@@ -197,7 +197,7 @@
   const feesText = z => z.parts.map(p => won(p.fee)).join(' / ');
 
   document.getElementById('sub').textContent =
-    `10/1~11/7 주문 ${DATA.total}건 기준 · 대행사 요금 구역별 색 (비 할증·한 곳짜리 구역 할증 제외)`;
+    `10/1~11/7 주문 ${DATA.total}건 기준 · 대행사 요금 구역별 색 (비 할증 500원 제외)`;
   document.getElementById('legend').innerHTML =
     BINS.map(b => `<span><i class="sw" style="background:${b.color}"></i>${b.label}</span>`).join('') +
     `<span><i class="sw empty"></i>배달구역 · 주문 없음</span>` +
@@ -488,13 +488,7 @@
         html += `<h3>요금 구역 ${z.parts.length}개로 나뉘어요</h3><table class="parts">` +
           z.parts.map(p => `<tr><td><i class="sw" style="background:${binOf(p.fee).color}"></i><b>${won(p.fee)}</b> · ${p.where}</td>` +
             `<td class="num">${p.n}건</td></tr>`).join('') + '</table>' +
-          `<p class="note">구역 경계(점선)는 주문 위치를 보고 그린 대략적인 선이에요.</p>`;
-      }
-      const spots = z.parts.flatMap(p => p.extraSpots.map(([diff, cnt, orders]) => ({ diff, cnt, orders, fee: p.fee })));
-      if (spots.length) {
-        html += `<h3>할증 붙는 곳</h3><table class="parts">` +
-          spots.map(s => `<tr><td><b>+${s.diff.toLocaleString('ko-KR')}원</b> (${won(s.fee + s.diff)})</td><td class="num">${s.cnt}곳 · ${s.orders}건</td></tr>`).join('') +
-          `</table><p class="note">초고층 아파트·오토바이 진입 곤란 같은 한 곳에만 붙는 요금이라 구역 색에는 넣지 않았어요.</p>`;
+          `<p class="note">구역 경계(점선)는 주문 위치를 보고 그린 대략적인 선이에요. '일부'는 아파트 단지처럼 한 곳만 요금이 달라서 그 주변만 작게 칠한 곳이에요.</p>`;
       }
       html += `<h3>요금별 주문 수</h3>` + barsHtml(z.counts);
       html += `<dl><dt>주문</dt><dd>${z.n}건</dd><dt>거리</dt><dd>${z.dMin.toFixed(2)}~${z.dMax.toFixed(2)}km</dd></dl>`;
@@ -519,7 +513,7 @@
                `<td class="num">${z.dMin.toFixed(1)}~${z.dMax.toFixed(1)}</td></tr>`;
       }).join('') + '</tbody></table>' +
       `<div class="foot">· 요금이 둘 이상이면 대행사가 그 동을 여러 구역으로 나눠 받는 곳 (경계는 주문 위치로 추정)<br>` +
-      `· 한 곳에만 붙는 할증(초고층·진입 곤란)은 동네를 누르면 따로 보여요<br>` +
+      `· 아파트 단지처럼 한 곳만 요금이 다른 곳은 그 주변만 작게 칠했어요<br>` +
       `· 모든 요금은 비 할증 500원을 뺀 값<br>` +
       `· 위치를 못 찾은 ${DATA.unplaced}건(주소 가려짐 ${DATA.masked}건, 지번 검색 실패 ${DATA.unplaced - DATA.masked}건)은 빠졌어요</div>`;
     listEl.querySelectorAll('tr.row').forEach(tr => tr.addEventListener('click', () => {
