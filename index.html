@@ -101,8 +101,8 @@
   }
   .measure-label .km { font-size: 16px; font-weight: 700; }
   .measure-label .now { color: var(--ink-2); border-top: 1px solid var(--line); margin-top: 3px; padding-top: 3px; }
-  .measure-label .calc { color: var(--ink-2); font-size: 11px; }
-  .measure-label .sc { color: #b3261e; font-weight: 700; }
+  .measure-label .sc { color: #b3261e; }
+  .measure-label .sc b { font-weight: 700; }
   .measure-label.fixed { border-style: solid; background: #fff7f5; }
   .store .nm { font-size: 11px; font-weight: 700; background: #fff; border-radius: 4px; padding: 1px 5px; border: 1px solid rgba(0,0,0,.2); }
 
@@ -463,6 +463,39 @@
       });
     }
 
+    // 원 선이 지나가는 할증 구역 찾기:
+    // 가게에서 구역까지 가장 가까운 거리 ≤ 반경 ≤ 가장 먼 거리 이면 원 선이 그 구역을 지나간다
+    const toM = ([lng, lat]) => [(lng - DATA.store.lng) * 111320 * Math.cos(DATA.store.lat * Math.PI / 180), (lat - DATA.store.lat) * 110950];
+    function segDist([ax, ay], [bx, by]) { // 가게(0,0)에서 선분까지 거리
+      const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+      const t = L ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L)) : 0;
+      return Math.hypot(ax + t * dx, ay + t * dy);
+    }
+    scShapes.forEach(s => {
+      const ring = s.sz.geom.coordinates[0];
+      const pts = ring.map(toM);
+      const storeInside = inRing(DATA.store.lng, DATA.store.lat, ring);
+      s.minD = storeInside ? 0 : Math.min(...pts.slice(1).map((p, i) => segDist(pts[i], p)));
+      s.maxD = Math.max(...pts.map(p => Math.hypot(p[0], p[1])));
+    });
+    function scCrossed(m) {
+      return scShapes.filter(s => s.minD <= m && m <= s.maxD)
+        .sort((a, b) => b.sz.add - a.sz.add || a.sz.name.localeCompare(b.sz.name, 'ko'));
+    }
+    // 원 선이 지나가는 할증 구역은 테두리를 진하게
+    let crossedNow = new Set();
+    function markCrossed(list) {
+      const next = new Set(list);
+      scShapes.forEach(s => {
+        const on = next.has(s);
+        if (on === crossedNow.has(s)) return;
+        s.poly.setOptions(on
+          ? { strokeWeight: 3.5, strokeColor: '#b3261e', fillOpacity: 0.6 }
+          : { strokeWeight: 2, strokeColor: '#e34948', fillOpacity: 0.45 });
+      });
+      crossedNow = next;
+    }
+
     let measure = null; // { circle, line, label, fixed }
     const btnMeasure = document.getElementById('btnMeasure');
     function startMeasure() {
@@ -489,6 +522,7 @@
       if (!measure) return;
       measure.circle.setMap(null); measure.line.setMap(null); measure.label.setMap(null);
       measure = null;
+      markCrossed([]);
       mapEl.classList.remove('measuring');
       btnMeasure.classList.remove('on');
       btnMeasure.textContent = '거리 요금 재기';
@@ -501,13 +535,12 @@
       const now = hit
         ? `<div class="now">지금 대행사: ${hit.d.name}${hit.d.z.parts.length > 1 && hit.p.where !== '대부분' ? ' ' + hit.p.where : ''} <b>${won(hit.p.fee)}</b></div>`
         : '';
-      // 다른 대행사: 거리 요금 + (할증 구역 안이면) 할증
+      // 다른 대행사: 거리 요금, 그리고 원 선이 지나가는 할증 구역마다 할증료 포함 금액
       const dist = otherFee(m);
-      const sc = surchargeAt(ll);
-      const other = sc
-        ? `<div>다른 대행사 <b>${won(dist + sc.add)}</b></div>` +
-          `<div class="calc">거리 ${won(dist)} + <span class="sc">할증 ${won(sc.add)}</span> (${sc.name})</div>`
-        : `<div>다른 대행사 <b>${won(dist)}</b></div>`;
+      const crossed = scCrossed(m);
+      markCrossed(crossed);
+      const other = `<div>다른 대행사 <b>${won(dist)}</b></div>` +
+        crossed.map(s => `<div class="sc">${s.sz.name} 지역 (할증료 +${s.sz.add.toLocaleString('ko-KR')}) <b>${won(dist + s.sz.add)}</b></div>`).join('');
       const html = `<div class="km">${(m / 1000).toFixed(2)}km</div>${other}${now}`;
       if (html !== measure.html) { measure.labelEl.innerHTML = html; measure.html = html; }
       measure.labelEl.classList.toggle('fixed', measure.fixed);
