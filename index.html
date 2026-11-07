@@ -74,6 +74,19 @@
   .dong-label.hl span { color: #fff; }
   .hide-labels .dong-label { display: none; }
 
+  /* 다른 대행사 할증 구역 (연붉은 색) */
+  .legend .sw.sc { background: rgba(242,139,130,.55); border: 1.5px solid #e34948; }
+  .sc-label {
+    background: #fff; border: 1.5px solid #e34948; color: #b3261e; border-radius: 6px;
+    padding: 1px 6px; font-size: 11px; font-weight: 700; white-space: nowrap; pointer-events: none; line-height: 1.35;
+    text-align: center;
+  }
+  .sc-label small { display: none; font-weight: 400; color: var(--ink-2); }
+  .sc-label.hl small, .show-names .sc-label small { display: block; }
+  .sc-label.hl { background: #b3261e; color: #fff; }
+  .sc-label.hl small { color: #fff; }
+  .hide-labels .sc-label, .hide-sc .sc-label { display: none; }
+
   .store { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
   .store .ico { font-size: 26px; line-height: 1; color: #e34948; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 4px #fff; pointer-events: auto; cursor: pointer; }
 
@@ -88,6 +101,8 @@
   }
   .measure-label .km { font-size: 16px; font-weight: 700; }
   .measure-label .now { color: var(--ink-2); border-top: 1px solid var(--line); margin-top: 3px; padding-top: 3px; }
+  .measure-label .calc { color: var(--ink-2); font-size: 11px; }
+  .measure-label .sc { color: #b3261e; font-weight: 700; }
   .measure-label.fixed { border-style: solid; background: #fff7f5; }
   .store .nm { font-size: 11px; font-weight: 700; background: #fff; border-radius: 4px; padding: 1px 5px; border: 1px solid rgba(0,0,0,.2); }
 
@@ -160,6 +175,7 @@
   <div class="legend" id="legend"></div>
   <div class="controls">
     <label><input type="checkbox" id="tgLabels" checked> 동 이름표</label>
+    <label><input type="checkbox" id="tgSurcharge" checked> 다른 대행사 할증</label>
     <button id="btnMeasure" type="button">거리 요금 재기</button>
     <button id="btnList" type="button">동네 목록</button>
   </div>
@@ -175,6 +191,7 @@
 
 <script src="boundaries.js"></script>
 <script src="zones.js"></script>
+<script src="surcharge.js"></script>
 <script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=ce6fa4560085d8ebc62110f4b3a747c2&autoload=false"></script>
 <script>
 (function () {
@@ -200,6 +217,7 @@
   document.getElementById('legend').innerHTML =
     BINS.map(b => `<span><i class="sw" style="background:${b.color}"></i>${b.label}</span>`).join('') +
     `<span><i class="sw empty"></i>배달구역 · 주문 없음</span>` +
+    `<span><i class="sw sc"></i>다른 대행사 할증 구역</span>` +
     `<span><span class="star">★</span>가게</span>`;
 
   kakao.maps.load(init);
@@ -348,6 +366,64 @@
       ls.forEach(l => { if (l.hidden && !l.el.classList.contains('hl')) l.el.style.visibility = 'hidden'; });
     }
 
+    // ── 다른 대행사 할증 구역 (연붉은 색) ─────────────
+    const SC = window.SURCHARGE_ZONES || [];
+    const scShapes = SC.map(sz => {
+      const ring = sz.geom.coordinates[0];
+      const poly = new kakao.maps.Polygon({
+        map, zIndex: 3, path: ring.map(([x, y]) => new kakao.maps.LatLng(y, x)),
+        strokeWeight: 2, strokeColor: '#e34948', strokeOpacity: 0.9, strokeStyle: 'solid',
+        fillColor: '#f28b82', fillOpacity: 0.45,
+      });
+      const el = document.createElement('div');
+      el.className = 'sc-label';
+      el.innerHTML = `+${sz.add.toLocaleString('ko-KR')}<small>${sz.name}</small>`;
+      const ov = new kakao.maps.CustomOverlay({ map, position: new kakao.maps.LatLng(sz.label[1], sz.label[0]), content: el, zIndex: 4 });
+      allLabels.push({ el, ov, prio: Infinity, hidden: false }); // 이름표가 겹치면 할증 금액을 먼저 보여줌
+      // 붉은 구역 위에서도 아래 동네를 가리키고 누를 수 있게
+      let under = null;
+      kakao.maps.event.addListener(poly, 'mousemove', e => {
+        el.classList.add('hl');
+        const hit = zoneAt(e.latLng);
+        const d = hit ? hit.d : null;
+        if (d === under) return;
+        if (under) hoverOff(under);
+        under = d;
+        if (d) hoverOn(d);
+      });
+      kakao.maps.event.addListener(poly, 'mouseout', () => {
+        el.classList.remove('hl');
+        if (under) hoverOff(under);
+        under = null;
+      });
+      kakao.maps.event.addListener(poly, 'click', e => {
+        if (measure) return;
+        const hit = zoneAt(e.latLng);
+        if (hit) selectDong(hit.d);
+      });
+      return { poly, ov, sz, el };
+    });
+    // 마우스가 할증 구역 안에 있으면 그 구역 이름표를 진하게 (이름까지 보이게)
+    let scHot = null;
+    function scHover(ll) {
+      const sz = ll ? surchargeAt(ll) : null;
+      const s = sz ? scShapes.find(x => x.sz === sz) : null;
+      if (s === scHot) return;
+      if (scHot) scHot.el.classList.remove('hl');
+      scHot = s;
+      if (s) s.el.classList.add('hl');
+    }
+    document.getElementById('tgSurcharge').addEventListener('change', ev => {
+      const on = ev.target.checked;
+      scShapes.forEach(s => { s.poly.setMap(on ? map : null); s.ov.setMap(on ? map : null); });
+      mapEl.classList.toggle('hide-sc', !on);
+    });
+    // 이 지점이 다른 대행사 할증 구역 안인지 (겹치면 큰 금액)
+    function surchargeAt(ll) {
+      const x = ll.getLng(), y = ll.getLat();
+      return SC.filter(sz => inRing(x, y, sz.geom.coordinates[0])).sort((a, b) => b.add - a.add)[0] || null;
+    }
+
     // 가게 (별을 누르면 거리 요금 재기)
     const storePos = new kakao.maps.LatLng(DATA.store.lat, DATA.store.lng);
     const storeEl = document.createElement('div');
@@ -425,7 +501,14 @@
       const now = hit
         ? `<div class="now">지금 대행사: ${hit.d.name}${hit.d.z.parts.length > 1 && hit.p.where !== '대부분' ? ' ' + hit.p.where : ''} <b>${won(hit.p.fee)}</b></div>`
         : '';
-      const html = `<div class="km">${(m / 1000).toFixed(2)}km</div><div>다른 대행사 <b>${won(otherFee(m))}</b></div>${now}`;
+      // 다른 대행사: 거리 요금 + (할증 구역 안이면) 할증
+      const dist = otherFee(m);
+      const sc = surchargeAt(ll);
+      const other = sc
+        ? `<div>다른 대행사 <b>${won(dist + sc.add)}</b></div>` +
+          `<div class="calc">거리 ${won(dist)} + <span class="sc">할증 ${won(sc.add)}</span> (${sc.name})</div>`
+        : `<div>다른 대행사 <b>${won(dist)}</b></div>`;
+      const html = `<div class="km">${(m / 1000).toFixed(2)}km</div>${other}${now}`;
       if (html !== measure.html) { measure.labelEl.innerHTML = html; measure.html = html; }
       measure.labelEl.classList.toggle('fixed', measure.fixed);
       measure.labelEl.style.display = '';
@@ -457,9 +540,15 @@
       measure.fixed = !measure.fixed; // 클릭하면 고정, 다시 클릭하면 다시 따라다님
       drawMeasure(llFromEvent(ev));
     }, true);
+    // 할증 구역 이름표: 마우스가 붉은 구역 안이면 진하게 (화면이 바뀔 때마다 한 번만 확인)
+    let scFrame = 0, scEv = null;
     mapEl.addEventListener('mousemove', ev => {
       if (measure && !measure.fixed) queueMeasure(llFromEvent(ev));
+      if (!onMapSurface(ev) || mapEl.classList.contains('hide-sc')) return;
+      scEv = ev;
+      if (!scFrame) scFrame = requestAnimationFrame(() => { scFrame = 0; scHover(llFromEvent(scEv)); });
     }, true);
+    mapEl.addEventListener('mouseleave', () => scHover(null));
     btnMeasure.addEventListener('click', () => (measure ? stopMeasure() : startMeasure()));
     document.addEventListener('keydown', e => { if (e.key === 'Escape') stopMeasure(); });
 
