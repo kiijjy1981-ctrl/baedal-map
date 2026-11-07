@@ -61,7 +61,6 @@
     text-align: center;
     white-space: nowrap;
     color: var(--ink);
-    box-shadow: 0 1px 2px rgba(0,0,0,.12);
     cursor: pointer;
   }
   /* 동 이름은 마우스를 대거나(hl) 크게 확대했을 때만 */
@@ -234,12 +233,15 @@
       const d = { name, gu, z, inZone, bounds, fills: [], labels: [] };
 
       if (z) {
-        // 요금 구역별 면 (구역 사이 경계는 점선)
+        // 요금 구역별 면 (구역이 나뉜 동네만 경계 점선 — 점선은 그리기가 무거워서)
+        d.split = z.parts.length > 1;
+        d.fillLine = d.split
+          ? { strokeWeight: 1.5, strokeColor: '#ffffff', strokeOpacity: 0.9, strokeStyle: 'shortdash' }
+          : { strokeWeight: 0, strokeOpacity: 0 };
         z.parts.forEach(p => {
           toPaths(p.geom).forEach(path => {
             d.fills.push(new kakao.maps.Polygon({
-              map, path,
-              strokeWeight: 1.5, strokeColor: '#ffffff', strokeOpacity: 0.9, strokeStyle: 'shortdash',
+              map, path, ...d.fillLine,
               fillColor: binOf(p.fee).color, fillOpacity: inZone ? 0.62 : 0.3,
             }));
           });
@@ -297,7 +299,8 @@
     let hovered = null, offTimer = null;
     function hoverOn(d) {
       clearTimeout(offTimer);
-      if (hovered && hovered !== d) highlight(hovered, false);
+      if (hovered === d) return; // 같은 동네 안에서 움직이면 다시 그리지 않음
+      if (hovered) highlight(hovered, false);
       hovered = d;
       highlight(d, true);
     }
@@ -309,14 +312,16 @@
     let selected = null;
     function highlight(d, on) {
       const active = on || d === selected;
+      if (d.active === active) return; // 이미 그 상태면 그대로
+      d.active = active;
       // 행정동 테두리: 진하고 굵게
       const s = active ? { ...d.outlineStyle, strokeWeight: 4, strokeColor: '#1f1f1d', strokeOpacity: 1, strokeStyle: 'solid' } : d.outlineStyle;
       d.outlines.forEach(l => { l.setOptions(s); l.setZIndex(active ? 5 : 2); });
-      // 동 안의 구역 경계(점선)도 진하게
-      if (d.z) {
+      // 구역이 나뉜 동네는 안쪽 경계(점선)도 진하게
+      if (d.split) {
         d.fills.forEach(p => p.setOptions(active
           ? { strokeWeight: 2.5, strokeColor: '#1f1f1d', strokeOpacity: 1 }
-          : { strokeWeight: 1.5, strokeColor: '#ffffff', strokeOpacity: 0.9 }));
+          : d.fillLine));
       }
       d.labels.forEach(l => {
         l.el.classList.toggle('hl', active);
@@ -326,16 +331,21 @@
     }
 
     // 이름표가 서로 겹치면 큰 구역 것만 남김 (확대하면 다시 보임)
+    // 화면 배치 계산이 한 번만 일어나도록 쓰기 → 읽기 → 쓰기를 몰아서 한다
+    const labelsByPrio = () => allLabels.slice().sort((a, b) => b.prio - a.prio);
     function declutter() {
+      if (mapEl.classList.contains('hide-labels')) return;
+      const ls = labelsByPrio();
+      ls.forEach(l => { l.el.style.visibility = 'visible'; });
+      const rects = ls.map(l => l.el.getBoundingClientRect());
       const placed = [];
-      allLabels.slice().sort((a, b) => b.prio - a.prio).forEach(l => {
-        l.el.style.visibility = 'visible';
-        const r = l.el.getBoundingClientRect();
+      ls.forEach((l, i) => {
+        const r = rects[i];
         const hit = r.width && placed.some(p => r.left < p.right + 2 && r.right > p.left - 2 && r.top < p.bottom + 2 && r.bottom > p.top - 2);
         l.hidden = !!hit;
-        if (hit && !l.el.classList.contains('hl')) l.el.style.visibility = 'hidden';
-        else placed.push(r);
+        if (!hit) placed.push(r);
       });
+      ls.forEach(l => { if (l.hidden && !l.el.classList.contains('hl')) l.el.style.visibility = 'hidden'; });
     }
 
     // 가게 (별을 누르면 거리 요금 재기)
@@ -380,14 +390,20 @@
     let measure = null; // { circle, line, label, fixed }
     const btnMeasure = document.getElementById('btnMeasure');
     function startMeasure() {
+      const labelEl = document.createElement('div');
+      labelEl.className = 'measure-label';
+      labelEl.style.display = 'none';
       measure = {
         fixed: false,
+        html: '',
+        labelEl,
         circle: new kakao.maps.Circle({ map, center: storePos, radius: 1, zIndex: 6,
           strokeWeight: 2.5, strokeColor: '#e34948', strokeOpacity: 1, strokeStyle: 'dash',
           fillColor: '#e34948', fillOpacity: 0.07 }),
         line: new kakao.maps.Polyline({ map, path: [storePos, storePos], zIndex: 6,
           strokeWeight: 2, strokeColor: '#e34948', strokeOpacity: 1, strokeStyle: 'solid' }),
-        label: new kakao.maps.CustomOverlay({ map: null, position: storePos, zIndex: 12, xAnchor: -0.06, yAnchor: 1.15, content: '' }),
+        // 안내표는 한 번만 만들고 글자만 바꾼다
+        label: new kakao.maps.CustomOverlay({ map, position: storePos, zIndex: 12, xAnchor: -0.06, yAnchor: 1.15, content: labelEl }),
       };
       mapEl.classList.add('measuring');
       btnMeasure.classList.add('on');
@@ -407,13 +423,23 @@
       measure.line.setPath([storePos, ll]);
       const hit = zoneAt(ll);
       const now = hit
-        ? `<div class="now">지금 대행사: ${hit.d.name}${hit.d.z.parts.length > 1 ? ' ' + hit.p.where : ''} <b>${won(hit.p.fee)}</b></div>`
+        ? `<div class="now">지금 대행사: ${hit.d.name}${hit.d.z.parts.length > 1 && hit.p.where !== '대부분' ? ' ' + hit.p.where : ''} <b>${won(hit.p.fee)}</b></div>`
         : '';
-      measure.label.setContent(
-        `<div class="measure-label${measure.fixed ? ' fixed' : ''}"><div class="km">${(m / 1000).toFixed(2)}km</div>` +
-        `<div>다른 대행사 <b>${won(otherFee(m))}</b></div>${now}</div>`);
+      const html = `<div class="km">${(m / 1000).toFixed(2)}km</div><div>다른 대행사 <b>${won(otherFee(m))}</b></div>${now}`;
+      if (html !== measure.html) { measure.labelEl.innerHTML = html; measure.html = html; }
+      measure.labelEl.classList.toggle('fixed', measure.fixed);
+      measure.labelEl.style.display = '';
       measure.label.setPosition(ll);
-      measure.label.setMap(map);
+    }
+    // 마우스가 아무리 빨리 움직여도 화면이 바뀔 때마다 한 번만 그린다
+    let pendingLL = null, frame = 0;
+    function queueMeasure(ll) {
+      pendingLL = ll;
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (measure && !measure.fixed && pendingLL) drawMeasure(pendingLL);
+      });
     }
     // 마우스 위치는 지도 화면에서 직접 읽음 (원이 계속 다시 그려져도 클릭이 사라지지 않도록)
     function llFromEvent(ev) {
@@ -432,7 +458,7 @@
       drawMeasure(llFromEvent(ev));
     }, true);
     mapEl.addEventListener('mousemove', ev => {
-      if (measure && !measure.fixed) drawMeasure(llFromEvent(ev));
+      if (measure && !measure.fixed) queueMeasure(llFromEvent(ev));
     }, true);
     btnMeasure.addEventListener('click', () => (measure ? stopMeasure() : startMeasure()));
     document.addEventListener('keydown', e => { if (e.key === 'Escape') stopMeasure(); });
