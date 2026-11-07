@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>제비원 배달대행 요금 지도</title>
+<style>
+  :root {
+    --ink: #1f1f1d;
+    --ink-2: #55554f;
+    --ink-3: #8a8a83;
+    --line: #e4e3df;
+    --surface: #fcfcfb;
+    --panel: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+    color: var(--ink);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 16px;
+    z-index: 5;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  header .sub { font-size: 12px; color: var(--ink-2); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--ink-2); align-items: center; }
+  .legend .sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+  .legend .sw.empty { background: rgba(154,154,150,.15); border: 1.5px dashed #6b6b66; }
+  .legend .star { color: #e34948; font-size: 14px; margin-right: 2px; }
+  .controls { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+  .controls label, .controls button {
+    font: inherit; font-size: 12px; color: var(--ink);
+    border: 1px solid var(--line); background: var(--panel);
+    border-radius: 999px; padding: 5px 10px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .controls input { margin: 0; }
+  main { flex: 1; position: relative; min-height: 0; }
+  #map { position: absolute; inset: 0; }
+
+  /* 동 이름표 */
+  .dong-label {
+    background: rgba(255,255,255,.92);
+    border: 1px solid rgba(0,0,0,.12);
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-size: 11px;
+    line-height: 1.3;
+    text-align: center;
+    white-space: nowrap;
+    color: var(--ink);
+    box-shadow: 0 1px 2px rgba(0,0,0,.12);
+    cursor: pointer;
+  }
+  /* 동 이름은 마우스를 대거나(hl) 크게 확대했을 때만 */
+  .dong-label b { display: none; font-weight: 600; }
+  .dong-label.hl b, .show-names .dong-label b, .dong-label.empty b { display: block; }
+  .dong-label span { color: var(--ink-2); }
+  .dong-label.empty { background: rgba(255,255,255,.7); color: var(--ink-3); border-style: dashed; }
+  .dong-label.empty span { color: var(--ink-3); }
+  .dong-label.outside { border: 1.5px dashed #1f1f1d; }
+  .dong-label.hl { background: #1f1f1d; color: #fff; border-color: #1f1f1d; }
+  .dong-label.hl span { color: #fff; }
+  .hide-labels .dong-label { display: none; }
+
+  .store { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+  .store .ico { font-size: 26px; line-height: 1; color: #e34948; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 4px #fff; pointer-events: auto; cursor: pointer; }
+
+  /* 거리 요금 재기 */
+  .controls button.on { background: #e34948; border-color: #e34948; color: #fff; }
+  .measuring .dong-label { pointer-events: none; }
+  .measuring { cursor: crosshair; }
+  .measure-label {
+    background: #fff; border: 2px solid #e34948; border-radius: 8px; padding: 6px 10px;
+    font-size: 12px; color: var(--ink); white-space: nowrap; pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18); line-height: 1.5;
+  }
+  .measure-label .km { font-size: 16px; font-weight: 700; }
+  .measure-label .now { color: var(--ink-2); border-top: 1px solid var(--line); margin-top: 3px; padding-top: 3px; }
+  .measure-label.fixed { border-style: solid; background: #fff7f5; }
+  .store .nm { font-size: 11px; font-weight: 700; background: #fff; border-radius: 4px; padding: 1px 5px; border: 1px solid rgba(0,0,0,.2); }
+
+  .parts { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+  .parts td { padding: 5px 4px; border-top: 1px solid var(--line); vertical-align: top; }
+  .parts td.num { text-align: right; white-space: nowrap; color: var(--ink-2); font-size: 12px; }
+  .parts .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+  /* 상세 패널 */
+  #panel {
+    position: absolute; top: 10px; right: 10px; width: 310px; max-height: calc(100% - 20px);
+    overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12); padding: 14px; z-index: 6; display: none;
+  }
+  #panel.open { display: block; }
+  #panel .close { position: absolute; top: 8px; right: 8px; border: 0; background: none; font-size: 18px; cursor: pointer; color: var(--ink-2); width: 32px; height: 32px; }
+  #panel h2 { font-size: 17px; margin: 0 0 2px; padding-right: 28px; }
+  #panel h3 { font-size: 13px; margin: 16px 0 4px; }
+  #panel .gu { font-size: 12px; color: var(--ink-3); }
+  #panel .big { font-size: 26px; font-weight: 700; margin: 10px 0 0; }
+  #panel .big small { font-size: 13px; font-weight: 400; color: var(--ink-2); margin-left: 6px; }
+  #panel .note { font-size: 12px; color: var(--ink-2); background: #f5f4f1; border-radius: 6px; padding: 8px; margin: 8px 0 0; line-height: 1.5; }
+  #panel dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; margin: 12px 0 0; }
+  #panel dt { color: var(--ink-3); }
+  #panel dd { margin: 0; }
+  .bars { font-size: 12px; }
+  .bars .row { display: grid; grid-template-columns: 64px 1fr 36px; align-items: center; gap: 6px; margin: 3px 0; }
+  .bars .bar { display: block; height: 10px; border-radius: 0 4px 4px 0; min-width: 2px; }
+  .bars .fee { color: var(--ink-2); text-align: right; }
+  .bars .cnt { color: var(--ink-2); }
+  .xtab { font-size: 13px; border-collapse: collapse; width: 100%; }
+  .xtab td { padding: 4px 4px; border-top: 1px solid var(--line); }
+  .xtab td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-2); }
+
+  /* 목록 */
+  #list {
+    position: absolute; top: 10px; left: 10px; bottom: 10px; width: 400px; overflow: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12); z-index: 6; display: none;
+  }
+  #list.open { display: block; }
+  #list .head { position: sticky; top: 0; background: var(--panel); padding: 12px 14px 8px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; z-index: 1; }
+  #list .head b { font-size: 14px; }
+  #list .head button { border: 0; background: none; font-size: 18px; cursor: pointer; color: var(--ink-2); }
+  #list table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  #list th { text-align: left; color: var(--ink-3); font-weight: 400; padding: 6px 8px; }
+  #list td { padding: 6px 8px; border-top: 1px solid var(--line); }
+  #list .num { text-align: right; font-variant-numeric: tabular-nums; }
+  #list tr.row { cursor: pointer; }
+  #list tr.row:hover { background: #f5f4f1; }
+  #list .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+  #list .foot { padding: 10px 14px 14px; font-size: 11px; color: var(--ink-3); line-height: 1.6; }
+
+  @media (max-width: 700px) {
+    header { padding: 8px 10px; }
+    header > div:first-child, .legend { flex-basis: 100%; min-width: 0; }
+    .legend { font-size: 11px; gap: 2px 8px; }
+    .controls { margin-left: 0; }
+    #panel { top: auto; bottom: 0; right: 0; left: 0; width: auto; max-height: 50%; border-radius: 12px 12px 0 0; }
+    #list { left: 0; right: 0; top: 0; bottom: 0; width: auto; border-radius: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>제비원 배달대행 요금 지도</h1>
+    <div class="sub" id="sub"></div>
+  </div>
+  <div class="legend" id="legend"></div>
+  <div class="controls">
+    <label><input type="checkbox" id="tgLabels" checked> 동 이름표</label>
+    <button id="btnMeasure" type="button">거리 요금 재기</button>
+    <button id="btnList" type="button">동네 목록</button>
+  </div>
+</header>
+<main>
+  <div id="map"></div>
+  <aside id="panel" aria-live="polite"><button class="close" id="panelClose" aria-label="닫기">×</button><div id="panelBody"></div></aside>
+  <aside id="list">
+    <div class="head"><b>행정동별 기본요금</b><button id="listClose" aria-label="닫기">×</button></div>
+    <div id="listBody"></div>
+  </aside>
+</main>
+
+<script src="boundaries.js"></script>
+<script src="zones.js"></script>
+<script src="//dapi.kakao.com/v2/maps/sdk.js?appkey=ce6fa4560085d8ebc62110f4b3a747c2&autoload=false"></script>
+<script>
+(function () {
+  const DATA = window.ZONE_DATA;
+  const GEO = window.HJD_BOUNDARIES;
+
+  // 요금 5단계 — 파란색 한 계열, 비쌀수록 진하게
+  const BINS = [
+    { max: 3700, color: '#86b6ef', label: '3,600~3,700원' },
+    { max: 4500, color: '#5598e7', label: '3,800~4,500원' },
+    { max: 5500, color: '#2a78d6', label: '4,600~5,500원' },
+    { max: 6500, color: '#1c5cab', label: '5,700~6,500원' },
+    { max: Infinity, color: '#104281', label: '6,800원 이상' },
+  ];
+  const binOf = fee => BINS.find(b => fee <= b.max);
+  const won = n => n.toLocaleString('ko-KR') + '원';
+  const zoneSet = new Set(DATA.zoneDongs);
+  const statsByKey = Object.fromEntries(DATA.zones.map(z => [z.gu + ' ' + z.name, z]));
+  const feesText = z => z.parts.map(p => won(p.fee)).join(' / ');
+
+  document.getElementById('sub').textContent =
+    `10/1~11/7 주문 ${DATA.total}건 기준 · 대행사 요금 구역별 색 (비 할증·한 곳짜리 구역 할증 제외)`;
+  document.getElementById('legend').innerHTML =
+    BINS.map(b => `<span><i class="sw" style="background:${b.color}"></i>${b.label}</span>`).join('') +
+    `<span><i class="sw empty"></i>배달구역 · 주문 없음</span>` +
+    `<span><span class="star">★</span>가게</span>`;
+
+  kakao.maps.load(init);
+
+  // GeoJSON 도형 -> 카카오 경로 목록 (Polygon/MultiPolygon 모두)
+  function toPaths(geom) {
+    const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+    return polys.map(rings => rings.map(r => r.map(([x, y]) => new kakao.maps.LatLng(y, x))));
+  }
+
+  function init() {
+    const map = new kakao.maps.Map(document.getElementById('map'), {
+      center: new kakao.maps.LatLng(DATA.store.lat, DATA.store.lng),
+      level: 7,
+    });
+    map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
+    const mapEl = document.getElementById('map');
+    const startBounds = new kakao.maps.LatLngBounds();
+
+    const dongs = [];
+    const allLabels = [];
+    GEO.features.forEach(f => {
+      const { name, gu } = f.properties;
+      const z = statsByKey[gu + ' ' + name];
+      const inZone = zoneSet.has(name);
+      if (!z && !inZone) return;
+
+      const outlinePaths = toPaths(f.geometry);
+      const bounds = new kakao.maps.LatLngBounds();
+      outlinePaths.forEach(rings => rings[0].forEach(ll => { bounds.extend(ll); if (z && inZone) startBounds.extend(ll); }));
+      const d = { name, gu, z, inZone, bounds, fills: [], labels: [] };
+
+      if (z) {
+        // 요금 구역별 면 (구역 사이 경계는 점선)
+        z.parts.forEach(p => {
+          toPaths(p.geom).forEach(path => {
+            d.fills.push(new kakao.maps.Polygon({
+              map, path,
+              strokeWeight: 1.5, strokeColor: '#ffffff', strokeOpacity: 0.9, strokeStyle: 'shortdash',
+              fillColor: binOf(p.fee).color, fillOpacity: inZone ? 0.62 : 0.3,
+            }));
+          });
+        });
+      } else {
+        toPaths(f.geometry).forEach(path => {
+          d.fills.push(new kakao.maps.Polygon({
+            map, path, strokeWeight: 0, strokeOpacity: 0, fillColor: '#9a9a96', fillOpacity: 0.12,
+          }));
+        });
+      }
+
+      // 행정동 테두리 (선이라 마우스를 가로막지 않음)
+      d.outlineStyle = z
+        ? { strokeWeight: 2.5, strokeColor: inZone ? '#ffffff' : '#1f1f1d', strokeOpacity: 1, strokeStyle: inZone ? 'solid' : 'shortdash' }
+        : { strokeWeight: 1.5, strokeColor: '#6b6b66', strokeOpacity: 0.9, strokeStyle: 'shortdash' };
+      d.outlines = outlinePaths.flatMap(rings => rings.map(r =>
+        new kakao.maps.Polyline({ map, path: r.concat([r[0]]), zIndex: 2, ...d.outlineStyle })));
+
+      // 이름표: 구역마다 요금 (마우스를 대면 동 이름이 같이 나옴)
+      if (z) {
+        z.parts.forEach(p => d.labels.push(makeLabel(d,
+          new kakao.maps.LatLng(p.label[1], p.label[0]),
+          `<b>${name}</b><span>${won(p.fee)}</span>`,
+          inZone ? '' : 'outside',
+          Math.abs(ringArea(p.geom.type === 'Polygon' ? p.geom.coordinates[0] : biggestRing(p.geom))))));
+      } else {
+        const ring = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0] : biggestRing(f.geometry);
+        const c = ringCentroid(ring);
+        d.labels.push(makeLabel(d, new kakao.maps.LatLng(c[1], c[0]), `<b>${name}</b><span>주문 없음</span>`, 'empty', 0));
+      }
+
+      d.fills.forEach(p => {
+        kakao.maps.event.addListener(p, 'mouseover', () => hoverOn(d));
+        kakao.maps.event.addListener(p, 'mouseout', () => hoverOff(d));
+        kakao.maps.event.addListener(p, 'click', () => { if (!measure) selectDong(d); });
+      });
+      dongs.push(d);
+    });
+
+    function makeLabel(d, pos, html, cls, prio) {
+      const el = document.createElement('div');
+      el.className = 'dong-label' + (cls ? ' ' + cls : '');
+      el.innerHTML = html;
+      el.addEventListener('mouseenter', () => hoverOn(d));
+      el.addEventListener('mouseleave', () => hoverOff(d));
+      el.addEventListener('click', () => { if (!measure) selectDong(d); });
+      const ov = new kakao.maps.CustomOverlay({ map, position: pos, content: el, zIndex: 3, clickable: true });
+      const lab = { el, ov, prio, hidden: false };
+      allLabels.push(lab);
+      return lab;
+    }
+
+    // 마우스가 동네 면 <-> 이름표 사이를 오갈 때 깜박이지 않도록 끄는 걸 살짝 늦춤
+    let hovered = null, offTimer = null;
+    function hoverOn(d) {
+      clearTimeout(offTimer);
+      if (hovered && hovered !== d) highlight(hovered, false);
+      hovered = d;
+      highlight(d, true);
+    }
+    function hoverOff(d) {
+      clearTimeout(offTimer);
+      offTimer = setTimeout(() => { if (hovered === d) { hovered = null; highlight(d, false); } }, 120);
+    }
+
+    let selected = null;
+    function highlight(d, on) {
+      const active = on || d === selected;
+      // 행정동 테두리: 진하고 굵게
+      const s = active ? { ...d.outlineStyle, strokeWeight: 4, strokeColor: '#1f1f1d', strokeOpacity: 1, strokeStyle: 'solid' } : d.outlineStyle;
+      d.outlines.forEach(l => { l.setOptions(s); l.setZIndex(active ? 5 : 2); });
+      // 동 안의 구역 경계(점선)도 진하게
+      if (d.z) {
+        d.fills.forEach(p => p.setOptions(active
+          ? { strokeWeight: 2.5, strokeColor: '#1f1f1d', strokeOpacity: 1 }
+          : { strokeWeight: 1.5, strokeColor: '#ffffff', strokeOpacity: 0.9 }));
+      }
+      d.labels.forEach(l => {
+        l.el.classList.toggle('hl', active);
+        l.el.style.visibility = active || !l.hidden ? 'visible' : 'hidden';
+        l.ov.setZIndex(active ? 8 : 3);
+      });
+    }
+
+    // 이름표가 서로 겹치면 큰 구역 것만 남김 (확대하면 다시 보임)
+    function declutter() {
+      const placed = [];
+      allLabels.slice().sort((a, b) => b.prio - a.prio).forEach(l => {
+        l.el.style.visibility = 'visible';
+        const r = l.el.getBoundingClientRect();
+        const hit = r.width && placed.some(p => r.left < p.right + 2 && r.right > p.left - 2 && r.top < p.bottom + 2 && r.bottom > p.top - 2);
+        l.hidden = !!hit;
+        if (hit && !l.el.classList.contains('hl')) l.el.style.visibility = 'hidden';
+        else placed.push(r);
+      });
+    }
+
+    // 가게 (별을 누르면 거리 요금 재기)
+    const storePos = new kakao.maps.LatLng(DATA.store.lat, DATA.store.lng);
+    const storeEl = document.createElement('div');
+    storeEl.className = 'store';
+    storeEl.innerHTML = `<span class="ico" title="눌러서 거리 요금 재기">★</span><span class="nm">${DATA.store.name}</span>`;
+    storeEl.querySelector('.ico').addEventListener('click', e => { e.stopPropagation(); measure ? stopMeasure() : startMeasure(); });
+    new kakao.maps.CustomOverlay({ map, zIndex: 10, yAnchor: 0.75, position: storePos, content: storeEl, clickable: true });
+
+    // ── 다른 대행사 거리 요금 재기 ──────────────────────
+    // 직선거리 기준, 1.5km까지 3,800원, 넘으면 100m마다 +100원 (조금이라도 넘으면 올림)
+    const OTHER = { baseM: 1500, baseFee: 3800, stepM: 100, stepFee: 100 };
+    function otherFee(m) {
+      if (m <= OTHER.baseM) return OTHER.baseFee;
+      return OTHER.baseFee + Math.ceil((m - OTHER.baseM) / OTHER.stepM - 1e-9) * OTHER.stepFee;
+    }
+    function distM(a, b) { // 두 지점 사이 직선거리(m)
+      const R = 6371008.8, rad = Math.PI / 180;
+      const p1 = a.getLat() * rad, p2 = b.getLat() * rad;
+      const dp = p2 - p1, dl = (b.getLng() - a.getLng()) * rad;
+      const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(h));
+    }
+    // 이 지점이 지금 대행사 어느 요금 구역인지
+    const partIndex = dongs.filter(d => d.z).flatMap(d => d.z.parts.map(p => ({ d, p })));
+    function inRing(x, y, r) {
+      let inside = false;
+      for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+        if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) inside = !inside;
+      }
+      return inside;
+    }
+    function zoneAt(ll) {
+      const x = ll.getLng(), y = ll.getLat();
+      return partIndex.find(({ p }) => {
+        const polys = p.geom.type === 'Polygon' ? [p.geom.coordinates] : p.geom.coordinates;
+        return polys.some(rings => inRing(x, y, rings[0]) && !rings.slice(1).some(h => inRing(x, y, h)));
+      });
+    }
+
+    let measure = null; // { circle, line, label, fixed }
+    const btnMeasure = document.getElementById('btnMeasure');
+    function startMeasure() {
+      measure = {
+        fixed: false,
+        circle: new kakao.maps.Circle({ map, center: storePos, radius: 1, zIndex: 6,
+          strokeWeight: 2.5, strokeColor: '#e34948', strokeOpacity: 1, strokeStyle: 'dash',
+          fillColor: '#e34948', fillOpacity: 0.07 }),
+        line: new kakao.maps.Polyline({ map, path: [storePos, storePos], zIndex: 6,
+          strokeWeight: 2, strokeColor: '#e34948', strokeOpacity: 1, strokeStyle: 'solid' }),
+        label: new kakao.maps.CustomOverlay({ map: null, position: storePos, zIndex: 12, xAnchor: -0.06, yAnchor: 1.15, content: '' }),
+      };
+      mapEl.classList.add('measuring');
+      btnMeasure.classList.add('on');
+      btnMeasure.textContent = '거리 재기 끝내기';
+    }
+    function stopMeasure() {
+      if (!measure) return;
+      measure.circle.setMap(null); measure.line.setMap(null); measure.label.setMap(null);
+      measure = null;
+      mapEl.classList.remove('measuring');
+      btnMeasure.classList.remove('on');
+      btnMeasure.textContent = '거리 요금 재기';
+    }
+    function drawMeasure(ll) {
+      const m = distM(storePos, ll);
+      measure.circle.setRadius(Math.max(m, 1));
+      measure.line.setPath([storePos, ll]);
+      const hit = zoneAt(ll);
+      const now = hit
+        ? `<div class="now">지금 대행사: ${hit.d.name}${hit.d.z.parts.length > 1 ? ' ' + hit.p.where : ''} <b>${won(hit.p.fee)}</b></div>`
+        : '';
+      measure.label.setContent(
+        `<div class="measure-label${measure.fixed ? ' fixed' : ''}"><div class="km">${(m / 1000).toFixed(2)}km</div>` +
+        `<div>다른 대행사 <b>${won(otherFee(m))}</b></div>${now}</div>`);
+      measure.label.setPosition(ll);
+      measure.label.setMap(map);
+    }
+    // 마우스 위치는 지도 화면에서 직접 읽음 (원이 계속 다시 그려져도 클릭이 사라지지 않도록)
+    function llFromEvent(ev) {
+      const r = mapEl.getBoundingClientRect();
+      return map.getProjection().coordsFromContainerPoint(new kakao.maps.Point(ev.clientX - r.left, ev.clientY - r.top));
+    }
+    let downAt = null;
+    const onMapSurface = ev => mapEl.firstElementChild && mapEl.firstElementChild.contains(ev.target); // 확대/축소 버튼 등은 제외
+    mapEl.addEventListener('pointerdown', ev => { downAt = measure && onMapSurface(ev) ? [ev.clientX, ev.clientY] : null; }, true);
+    mapEl.addEventListener('pointerup', ev => {
+      if (!measure || !downAt) return;
+      const moved = Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]);
+      downAt = null;
+      if (moved > 6) return; // 지도를 끌어서 옮긴 경우는 클릭이 아님
+      measure.fixed = !measure.fixed; // 클릭하면 고정, 다시 클릭하면 다시 따라다님
+      drawMeasure(llFromEvent(ev));
+    }, true);
+    mapEl.addEventListener('mousemove', ev => {
+      if (measure && !measure.fixed) drawMeasure(llFromEvent(ev));
+    }, true);
+    btnMeasure.addEventListener('click', () => (measure ? stopMeasure() : startMeasure()));
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') stopMeasure(); });
+
+    map.setBounds(startBounds, 20, 20, 20, 20);
+    if (map.getLevel() > 7) map.setLevel(7); // 이름표가 보이는 거리에서 시작
+
+    const tgLabels = document.getElementById('tgLabels');
+    const syncZoom = () => {
+      const lv = map.getLevel();
+      mapEl.classList.toggle('hide-labels', !tgLabels.checked || lv >= 8);
+      mapEl.classList.toggle('show-names', lv <= 5); // 충분히 확대하면 동 이름 항상 표시
+    };
+    kakao.maps.event.addListener(map, 'zoom_changed', syncZoom);
+    kakao.maps.event.addListener(map, 'idle', declutter);
+    syncZoom();
+    declutter();
+    tgLabels.addEventListener('change', () => { syncZoom(); declutter(); });
+
+    // ── 패널 ────────────────────────────────────────
+    const panel = document.getElementById('panel');
+    const panelBody = document.getElementById('panelBody');
+    const listEl = document.getElementById('list');
+    document.getElementById('panelClose').addEventListener('click', () => {
+      panel.classList.remove('open');
+      const prev = selected; selected = null; if (prev) highlight(prev, false);
+    });
+
+    function barsHtml(counts) {
+      const fees = Object.keys(counts).map(Number).sort((a, b) => a - b);
+      const maxC = Math.max(...Object.values(counts));
+      return '<div class="bars">' + fees.map(fee =>
+        `<div class="row"><span class="fee">${won(fee)}</span>` +
+        `<span><i class="bar" style="width:${(counts[fee] / maxC) * 100}%;background:${binOf(fee).color}"></i></span>` +
+        `<span class="cnt">${counts[fee]}건</span></div>`).join('') + '</div>';
+    }
+
+    function selectDong(d) {
+      const prev = selected; selected = d;
+      if (prev) highlight(prev, false);
+      highlight(d, true);
+      listEl.classList.remove('open');
+      const z = d.z;
+      let html = `<h2>${d.name}</h2><div class="gu">대구 ${d.gu}${d.inZone ? ' · 배달구역' : ' · 배달구역 목록에 없음'}</div>`;
+      if (!z) {
+        html += `<p class="note">10/1~11/7 사이 이 동네로 간 주문이 없어서 대행사 요금을 알 수 없어요.</p>`;
+        panelBody.innerHTML = html; panel.classList.add('open'); return;
+      }
+      if (z.parts.length === 1) {
+        html += `<div class="big">${won(z.parts[0].fee)}<small>동 전체 같은 요금</small></div>`;
+      } else {
+        html += `<div class="big">${feesText(z)}</div>`;
+        html += `<h3>요금 구역 ${z.parts.length}개로 나뉘어요</h3><table class="parts">` +
+          z.parts.map(p => `<tr><td><i class="sw" style="background:${binOf(p.fee).color}"></i><b>${won(p.fee)}</b> · ${p.where}</td>` +
+            `<td class="num">${p.n}건</td></tr>`).join('') + '</table>' +
+          `<p class="note">구역 경계(점선)는 주문 위치를 보고 그린 대략적인 선이에요.</p>`;
+      }
+      const spots = z.parts.flatMap(p => p.extraSpots.map(([diff, cnt, orders]) => ({ diff, cnt, orders, fee: p.fee })));
+      if (spots.length) {
+        html += `<h3>할증 붙는 곳</h3><table class="parts">` +
+          spots.map(s => `<tr><td><b>+${s.diff.toLocaleString('ko-KR')}원</b> (${won(s.fee + s.diff)})</td><td class="num">${s.cnt}곳 · ${s.orders}건</td></tr>`).join('') +
+          `</table><p class="note">초고층 아파트·오토바이 진입 곤란 같은 한 곳에만 붙는 요금이라 구역 색에는 넣지 않았어요.</p>`;
+      }
+      html += `<h3>요금별 주문 수</h3>` + barsHtml(z.counts);
+      html += `<dl><dt>주문</dt><dd>${z.n}건</dd><dt>거리</dt><dd>${z.dMin.toFixed(2)}~${z.dMax.toFixed(2)}km</dd></dl>`;
+      if (z.n <= 3) html += `<p class="note">주문이 ${z.n}건뿐이라 요금이 정확하지 않을 수 있어요.</p>`;
+      html += `<p class="note" style="background:none;padding:8px 0 0;color:var(--ink-3)">요금은 모두 비 할증(+500원)을 뺀 값${z.sur ? ` · 이 동 비 할증 주문 ${z.sur}건` : ''}</p>`;
+      panelBody.innerHTML = html;
+      panel.classList.add('open');
+    }
+
+    // ── 목록 ────────────────────────────────────────
+    document.getElementById('btnList').addEventListener('click', () => listEl.classList.toggle('open'));
+    document.getElementById('listClose').addEventListener('click', () => listEl.classList.remove('open'));
+    const sorted = dongs.slice().sort((a, b) =>
+      (a.z ? a.z.base : 1e9) - (b.z ? b.z.base : 1e9) || a.name.localeCompare(b.name, 'ko'));
+    document.getElementById('listBody').innerHTML =
+      '<table><thead><tr><th>행정동</th><th class="num">요금</th><th class="num">주문</th><th class="num">거리(km)</th></tr></thead><tbody>' +
+      sorted.map((d, i) => {
+        const z = d.z;
+        if (!z) return `<tr class="row" data-i="${i}"><td><i class="sw" style="background:#e4e3df"></i>${d.name}</td><td class="num" colspan="3" style="color:var(--ink-3)">주문 없음</td></tr>`;
+        return `<tr class="row" data-i="${i}"><td><i class="sw" style="background:${binOf(z.base).color}"></i>${d.name}${d.inZone ? '' : ' <small>(구역 밖)</small>'}</td>` +
+               `<td class="num">${feesText(z)}</td><td class="num">${z.n}건</td>` +
+               `<td class="num">${z.dMin.toFixed(1)}~${z.dMax.toFixed(1)}</td></tr>`;
+      }).join('') + '</tbody></table>' +
+      `<div class="foot">· 요금이 둘 이상이면 대행사가 그 동을 여러 구역으로 나눠 받는 곳 (경계는 주문 위치로 추정)<br>` +
+      `· 한 곳에만 붙는 할증(초고층·진입 곤란)은 동네를 누르면 따로 보여요<br>` +
+      `· 모든 요금은 비 할증 500원을 뺀 값<br>` +
+      `· 위치를 못 찾은 ${DATA.unplaced}건(주소 가려짐 ${DATA.masked}건, 지번 검색 실패 ${DATA.unplaced - DATA.masked}건)은 빠졌어요</div>`;
+    listEl.querySelectorAll('tr.row').forEach(tr => tr.addEventListener('click', () => {
+      const d = sorted[Number(tr.dataset.i)];
+      map.setBounds(d.bounds, 60, 60, 60, 60);
+      selectDong(d);
+    }));
+  }
+
+  // ── 도형 계산 ─────────────────────────────────────
+  function ringArea(r) {
+    let a = 0;
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] * r[i][1]) - (r[i][0] * r[j][1]);
+    return a / 2;
+  }
+  function biggestRing(geom) {
+    return geom.coordinates.map(p => p[0]).sort((a, b) => Math.abs(ringArea(b)) - Math.abs(ringArea(a)))[0];
+  }
+  function ringCentroid(r) {
+    let a = 0, cx = 0, cy = 0;
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const f = r[j][0] * r[i][1] - r[i][0] * r[j][1];
+      a += f; cx += (r[j][0] + r[i][0]) * f; cy += (r[j][1] + r[i][1]) * f;
+    }
+    a /= 2;
+    return a ? [cx / (6 * a), cy / (6 * a)] : r[0];
+  }
+})();
+</script>
+</body>
+</html>
